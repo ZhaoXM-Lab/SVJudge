@@ -1,0 +1,6 @@
+#CHR	ID	geneID	txID	relationship	Frameshit	GeneBody_AF	GeneBody_weight	GeneBody_Score	Overlap_Promoter	Promoter_AF	Promoter_weight	Promoter_Score	Overlap_Enhancer	Enhancer_AF	Enhancer_weight	Enhancer_Score	Overlap_DNA_Accessible	DNA_Accessible_AF	DNA_Accessible_weight	DNA_Accessible_Score	LOEUF_bin	HI_bin	TI_bin	Score	Overlap_TAD	Only_in_Intergenic(No Function)	Whole_SV_AF
+chr1	SV_1	SAMD11	ENST00000342066	SV in Coding or Splice	Yes	0.020155	1.03	0.0	No	0	1	0.0	No	0	1	0.0	No	0	1	0.0	9.0	1.0	1.0	0.0	No	No	0.020155
+chr1	SV_2	SAMD11	ENST00000342066	SV in Coding or Splice	No	0.0023866348	1.03	1.03	No	0	1	0.0	No	0	1	0.0	No	0	1	0.0	9.0	1.0	1.0	0.93	No	No	0.0
+chr12	SV_3	CEP290	ENST00000552810	SV in Coding or Splice	No	0.0	1.0	1.0	No	0	1	0.0	No	0	1	0.0	Yes	0	1	0.2	9.0	1.0	1.0	0.8	No	No	0.0
+chr3	SV_4	TNK2	ENST00000381916	SV in Intronic	No	0.0	1.0	0.1	No	0	1	0.0	No	0	1	0.0	Yes	0	1.19	0.24	9.0	1.0	1.0	0.24	No	No	0.0
+chr6	SV_5	PLEKHG1	ENST00000367328	SV in Intronic	No	0.08946	1.0	0.0	No	0	1	0.0	No	0	1	0.0	No	0	1	0.0	9.0	1.0	1.0	0.0	No	No	0.000221484

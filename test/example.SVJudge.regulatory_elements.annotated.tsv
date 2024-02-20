@@ -1,0 +1,3 @@
+#CHR	START	END	ID	SVTYPE	SVLEN	AF	RE_ID	RE_type	geneID	breakend1	breakend2	Overlap_rate	relationship	PublicSets_SVID	DataSet_names
+chr12	88490744	88490745	SV_3	INS	153	0	DNA_Access0077458	DNA_Accessible	CEP290	88490744	88490745	0.0037593984962406	SV overlap DNA_Accessible	unknown	unknown
+chr3	195622107	195622108	SV_4	INS	222	0	DNA_Access0152923	DNA_Accessible	TNK2	195622107	195622108	0.0035460992907801	SV overlap DNA_Accessible	unknown	unknown
