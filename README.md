@@ -1,6 +1,6 @@
 # SVJudge
 
-We are proud to introduce SVJudge, an innovative method specifically designed to evaluate Structural Variations (SVs) in
+We are glad to introduce SVJudge, an innovative method specifically designed to evaluate Structural Variations (SVs) in
 the context of their potential association with diseases. Recognizing the inherent challenges posed by the imprecision
 of SV breakpoints and their inherent complexity, SVJudge adopts a targeted approach. Instead of analyzing the full
 extent of SVs, our method focuses on their intersections with critical genomic functional areas. These include Coding
@@ -37,7 +37,7 @@ conda env create -f environment.yml
 ### 2. Download SVJudge
 
 ```
-git clone https://github.com/xjtu-omics/SVision.git
+git clone https://github.com/ZhaoXM-Lab/SVJudge
 ```
 ### 3. Navigate to the `path/to/SVJudge` and run `SVJudge.py`.
 ```
