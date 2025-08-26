@@ -2,6 +2,7 @@ import logging
 import os
 import subprocess
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from typing import Optional
 
 import numpy as np
@@ -30,6 +31,9 @@ def sv_gene_intersection(sv_bed: str, gene_annot_bed: str, output_dir: str, pref
     # Generate the output file name
     file_name = f'{prefix}.gene_annot.bedtools.temp.bed'
     output_file = os.path.join(output_dir, file_name)
+    if os.path.exists(output_file):
+        logging.info(f"Detected existing file: {output_file} — skipping processing and loading directly.")
+        return output_file
 
     # Check if the input files exist
     if not os.path.exists(sv_bed):
@@ -60,11 +64,6 @@ def sv_regulatory_elements_intersection(sv_bed_path, regulatory_reference_beds, 
     :param file_prefix: str, Prefix for the output file name.
     :return: str, Path to the annotated output file.
     """
-    # Initialize logging
-
-    logging.basicConfig(filename='annotation_log.log', level=logging.INFO,
-                        format='%(asctime)s:%(levelname)s:%(message)s')
-
     # Check if input files exist
     if not os.path.exists(sv_bed_path):
         logging.error(f"SV BED file not found at {sv_bed_path}")
@@ -78,6 +77,10 @@ def sv_regulatory_elements_intersection(sv_bed_path, regulatory_reference_beds, 
     # Create the output file name
     output_file_name = f'{file_prefix}.RE_annot.bedtools.temp.bed'
     output_file_path = os.path.join(output_directory, output_file_name)
+
+    if os.path.exists(output_file_path):
+        logging.info(f"Detected existing file: {output_file_path} — skipping processing and loading directly.")
+        return output_file_path
 
     # Construct the bedtools command
     bedtools_command = [
@@ -396,9 +399,12 @@ def annotate_sv_on_whole_gene(sv_gene_intersection_bed, gene_annot_dict, output_
     :param file_prefix: Prefix for the output file name.
     :return: Path to the output file containing gene annotation information.
     """
+    output_file_path = os.path.join(output_dir, f'{file_prefix}.gene_annot.full.tsv')
+    if os.path.exists(output_file_path):
+        logging.info(f"Detected existing file: {output_file_path} — skipping processing and loading directly.")
+        return output_file_path
     # Open the input BED file
     with open(sv_gene_intersection_bed, 'r') as input_bed_file:
-        output_file_path = os.path.join(output_dir, f'{file_prefix}.gene_annot.full.tsv')
         with open(output_file_path, 'w') as output_file:
             # Write header line to the output file
             header_columns = ['#CHR', 'START', 'END', 'ID', 'SVTYPE', 'SVLEN', 'AF',
@@ -470,7 +476,7 @@ def annotate_sv_on_whole_gene(sv_gene_intersection_bed, gene_annot_dict, output_
                     w_lines.append('Yes')
                 else:
                     w_lines.append('No')
-
+                w_lines = [str(w_) for w_ in w_lines]
                 w_line = '\t'.join(w_lines)
                 output_file.write('%s\n' % w_line)
             return output_file_path
@@ -499,7 +505,9 @@ def annotate_sv_on_regulatory_element(sv_regulation_intersection_bed, regulatory
         # Define the output file name and path
         output_file_name = f'{file_prefix}.RE_annot.tsv'
         output_file_path = os.path.join(output_directory, output_file_name)
-
+        if os.path.exists(output_file_path):
+            logging.info(f"Detected existing file: {output_file_path} — skipping processing and loading directly.")
+            return output_file_path
         # Write the header columns to the output file
         with open(output_file_path, 'w') as output_file:
             header_columns = ['#CHR', 'START', 'END', 'ID', 'SVTYPE', 'SVLEN', 'AF',
@@ -535,6 +543,9 @@ def split_gene_elements(whole_gene_sv_annot_file, gene_annot_dict):
     """
     df_full = pd.read_csv(whole_gene_sv_annot_file, sep='\t')
     out_split_file = whole_gene_sv_annot_file.replace('.gene_annot.full.tsv', '.gene_annot.split.tsv')
+    if os.path.exists(out_split_file):
+        logging.info(f"Detected existing file: {out_split_file} — skipping processing and loading directly.")
+        return out_split_file
     out_h = open(out_split_file, 'w')
     w_s_col = ['#CHR', 'START', 'END', 'ID', 'SVTYPE', 'SVLEN', 'txID', 'geneID', 'Element', 'Region',
                'breakend1', 'breakend2', 'Overlap_rate', 'AF']
@@ -698,10 +709,14 @@ def calculate_sv_similarity(start1, end1, start2, end2, sv_type=None, sv_len1=No
 
     # Check if sv_type is not INS, BND, or TRA, then calculate overlap similarity
     if sv_type not in ['INS', 'BND', 'TRA']:
+        if start1 == end1 or start2 == end2:
+            return None
         return _calculate_overlap_similarity(start1, end1, start2, end2, overlap_threshold)
 
     # Check if sv_len1 and sv_len2 are greater than 1, then calculate overlap similarity
     if sv_len1 > 1 and sv_len2 > 1:
+        if sv_len1 == 0 or sv_len2 == 0:
+            return None
         return _calculate_overlap_similarity(start1, start1 + sv_len1, start2, start2 + sv_len2, overlap_threshold)
 
     # Calculate similarity score based on distance between breakpoints
@@ -748,7 +763,9 @@ def filter_sv_by_overlap(df_data, sv_type, overlap_threshold=None, distance_thre
                     distance_threshold=distance_threshold,
                     overlap_threshold=overlap_threshold
                 )
-
+                if overlap_matrix[i, j] is None:
+                    print(df_filtered.loc[[i, j]])
+                    raise ValueError("Cannot calculate overlap between SVs")
     # Apply Louvain method to identify clusters
     clusters, _ = louvain_method(overlap_matrix)
 
@@ -823,6 +840,83 @@ def filter_sv_by_containment(df_data, sv_type):
 
 
 # %%
+
+def process_chunk_and_write_temp(args):
+    chunk_idx, chunk, overlap_threshold, distance_threshold, tmp_dir, columns = args
+    merged_rows = []
+
+    for key, group_df in chunk:
+        if len(group_df) == 1:
+            merged_rows.extend(group_df.values)
+        else:
+            filtered = filter_sv_by_overlap(group_df, group_df['U_SVTYPE'].iloc[0], overlap_threshold,
+                                            distance_threshold)
+            if len(filtered) > 1:
+                filtered = filter_sv_by_containment(filtered, filtered['U_SVTYPE'].iloc[0])
+            merged_rows.extend(filtered.values)
+
+    tmp_path = os.path.join(tmp_dir, f"tmp_chunk_{chunk_idx:04d}.tsv")
+    df_tmp = pd.DataFrame(merged_rows, columns=columns)
+    df_tmp.to_csv(tmp_path, sep='\t', index=False)
+    return tmp_path
+
+
+def dataframe_gene_split_filter_tempfile(df_input, out_file,
+                                         overlap_threshold=0.5,
+                                         distance_threshold=500,
+                                         num_workers=15,
+                                         chunk_size=5000):
+    """
+    带断点续跑 + 临时文件并行写入的 SV filter 函数
+    """
+    df_input['U_SVTYPE'] = df_input['SVTYPE'].apply(standardize_sv_type)
+    df_grouped = df_input.groupby(['txID', 'U_SVTYPE', 'Element', 'Region'])
+    group_items = list(df_grouped)
+    total_chunks = (len(group_items) + chunk_size - 1) // chunk_size
+
+    # 设置临时目录
+    tmp_dir = os.path.join(os.path.dirname(out_file), 'public_gene_sv_split_tmp')
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    print(f"Writing temporary results to: {tmp_dir}")
+
+    args_list = []
+    for i in range(total_chunks):
+        tmp_path = os.path.join(tmp_dir, f"tmp_chunk_{i:04d}.tsv")
+        # 如果文件存在且非空，跳过该chunk（断点续跑核心逻辑）
+        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+            continue
+        chunk = group_items[i * chunk_size: (i + 1) * chunk_size]
+        args_list.append((i, chunk, overlap_threshold, distance_threshold, tmp_dir, df_input.columns))
+
+    # 并行执行未完成的chunk
+    tmp_files = []
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        for tmp_file in tqdm(executor.map(process_chunk_and_write_temp, args_list), total=len(args_list)):
+            tmp_files.append(tmp_file)
+
+    # 加入已经完成的 chunk 文件路径
+    all_tmp_files = sorted([
+        os.path.join(tmp_dir, f) for f in os.listdir(tmp_dir)
+        if f.startswith("tmp_chunk_") and f.endswith(".tsv")
+    ])
+
+    # 合并所有 chunk 文件
+    with open(out_file, 'w') as f_out:
+        for i, tmp_file in enumerate(sorted(all_tmp_files)):
+            with open(tmp_file, 'r') as f_tmp:
+                if i == 0:
+                    f_out.write(f_tmp.read())  # 带 header
+                else:
+                    next(f_tmp)  # 跳过 header
+                    f_out.write(f_tmp.read())
+    print(f"Final output written to: {out_file}")
+    # shutil.rmtree(tmp_dir)
+    # print(f"Temporary files cleaned up from: {tmp_dir}")
+    return out_file
+
+
+# %%
 def dataframe_gene_split_filter(df_input, out_file, overlap_threshold, distance_threshold):
     """
     Merge and filter public data structural variation (SV) sets to obtain Allele Frequency (AF) for gene elements.
@@ -863,6 +957,74 @@ def dataframe_gene_split_filter(df_input, out_file, overlap_threshold, distance_
     df_final = pd.DataFrame(merged_values, columns=df_input.columns)
     df_final.to_csv(out_file, sep='\t', index=False)
 
+    return out_file
+
+
+# %%
+def dataframe_re_split_filter_tempfile(df_input, out_file,
+                                       overlap_threshold=0.5,
+                                       distance_threshold=500,
+                                       num_workers=8,
+                                       chunk_size=5000):
+    """
+    并行过滤公共数据中的 SV 以获得调控元件（RE）级别的 Allele Frequency。
+    支持断点续跑，临时文件写入。
+
+    Args:
+        df_input (DataFrame): 输入数据
+        out_file (str): 最终输出文件
+        overlap_threshold (float): 重叠比阈值
+        distance_threshold (float): 距离阈值
+        num_workers (int): 并发进程数
+        chunk_size (int): 每个并行任务处理的 group 数量
+        tmp_dir (str): 临时文件输出路径
+
+    Returns:
+        str: 最终输出文件路径
+    """
+
+    df_input['U_SVTYPE'] = df_input['SVTYPE'].apply(standardize_sv_type)
+    df_grouped = df_input.groupby(['RE_ID', 'RE_type', 'U_SVTYPE'])
+    group_items = list(df_grouped)
+    total_chunks = (len(group_items) + chunk_size - 1) // chunk_size
+
+    # 设置临时目录
+    tmp_dir = os.path.join(os.path.dirname(out_file), 'public_re_sv_split_tmp')
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    print(f"Writing temporary results to: {tmp_dir}")
+
+    args_list = []
+    for i in range(total_chunks):
+        tmp_path = os.path.join(tmp_dir, f"tmp_chunk_{i:04d}.tsv")
+        if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 0:
+            continue  # 跳过已完成
+        chunk = group_items[i * chunk_size: (i + 1) * chunk_size]
+        args_list.append((i, chunk, overlap_threshold, distance_threshold, tmp_dir, df_input.columns))
+
+    tmp_files = []
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        for tmp_file in tqdm(executor.map(process_chunk_and_write_temp, args_list), total=len(args_list)):
+            tmp_files.append(tmp_file)
+
+    # 收集全部临时文件进行合并
+    all_tmp_files = sorted([
+        os.path.join(tmp_dir, f) for f in os.listdir(tmp_dir)
+        if f.startswith("tmp_chunk_") and f.endswith(".tsv")
+    ])
+
+    with open(out_file, 'w') as f_out:
+        for i, tmp_file in enumerate(all_tmp_files):
+            with open(tmp_file, 'r') as f_tmp:
+                if i == 0:
+                    f_out.write(f_tmp.read())
+                else:
+                    next(f_tmp)
+                    f_out.write(f_tmp.read())
+
+    print(f"Final RE-merged SV data written to: {out_file}")
+    # shutil.rmtree(tmp_dir)
+    # print(f"Temporary files cleaned up from: {tmp_dir}")
     return out_file
 
 
@@ -941,9 +1103,10 @@ def merge_filter_sv_sets_in_gene(input_sv_af_dict, output_file, overlap_threshol
         merged_df = merged_df.append(temp_df, ignore_index=True)
 
     # Call the function to filter the merged dataframe and write to the output file
-    dataframe_gene_split_filter(df_input=merged_df, out_file=output_file,
-                                overlap_threshold=overlap_threshold, distance_threshold=distance_threshold)
-
+    # dataframe_gene_split_filter(df_input=merged_df, out_file=output_file,
+    #                             overlap_threshold=overlap_threshold, distance_threshold=distance_threshold)
+    dataframe_gene_split_filter_tempfile(df_input=merged_df, out_file=output_file, overlap_threshold=overlap_threshold,
+                                         distance_threshold=distance_threshold, num_workers=30, chunk_size=2000)
     return output_file
 
 
@@ -979,9 +1142,13 @@ def merge_filter_sv_sets_in_regulatory(input_files_dict, output_file, overlap_th
         merged_df = merged_df.append(temp_df, ignore_index=True)
 
     # Call the function to filter and split the merged DataFrame, and write the result to the output file
-    dataframe_re_split_filter(df_input=merged_df, out_file=output_file,
-                              overlap_threshold=overlap_threshold, distance_threshold=distance_threshold)
-
+    # dataframe_re_split_filter(df_input=merged_df, out_file=output_file,
+    #                           overlap_threshold=overlap_threshold, distance_threshold=distance_threshold)
+    dataframe_re_split_filter_tempfile(df_input=merged_df, out_file=output_file,
+                                       overlap_threshold=overlap_threshold,
+                                       distance_threshold=distance_threshold,
+                                       num_workers=30,
+                                       chunk_size=2000)
     # Return the path to the output file
     return output_file
 
@@ -1099,6 +1266,7 @@ def compare_and_obtain_af(row, df_annot_slice, overlap_threshold, distance_thres
     # If the slice of annotated data is empty, return unknown values
     if df_annot_slice.empty:
         return 'unknown', 'unknown', 0
+    # AZY add. 总长度
 
     # Rule 1: Calculate similarity rate and find the highest similarity
     bk1, bk2, sv_len, sv_type = row['breakend1'], row['breakend2'], row['SVLEN'], row['SVTYPE']
@@ -1143,6 +1311,9 @@ def compare_and_obtain_af(row, df_annot_slice, overlap_threshold, distance_thres
 
     # Filter rows with non-zero be-contained value
     df_rule3 = df_annot_slice[df_annot_slice['Be_Contained'] != 0]
+    # df_rule3.to_csv(
+    #     '/public/home/GENE_proc/anzy/SCZ_LRS_analysis/Python_Output/5.SVJudge/full_pipeline_results_20250508/temp/check.csv',
+    #     index=False)
     if len(df_rule3) > 1:
         # Check for overlap and return combined AnnotSV_ID, Datasets, and minimum AF
         bk1s, bk2s = df_rule3['breakend1'].tolist(), df_rule3['breakend2'].tolist()
@@ -1154,6 +1325,20 @@ def compare_and_obtain_af(row, df_annot_slice, overlap_threshold, distance_thres
                 df_rule3['AF'].tolist())
 
     return 'unknown', 'unknown', 0
+
+
+# %%
+def whole_sv_length_filter(judge_sv_length, public_sv_length, filter_threshold=0.3):
+    try:
+        min_sv_len = min(int(judge_sv_length), int(public_sv_length))
+        max_sv_len = max(int(judge_sv_length), int(public_sv_length))
+    except (TypeError, ValueError):
+        return False  # 输入无效时直接过滤
+
+    if max_sv_len == 0:
+        return False  # 避免除零
+
+    return min_sv_len / max_sv_len >= filter_threshold
 
 
 # %%
@@ -1180,7 +1365,9 @@ def annotate_judge_sv_af_in_split_gene(df_split_gene_judge_sv, split_gene_public
     annotated_sv_ids = []
     dataset_names = []
     afs = []
-
+    # df_input.to_csv(
+    #     '/public/home/GENE_proc/anzy/SCZ_LRS_analysis/Python_Output/5.SVJudge/full_pipeline_results_20250508/temp/check1.csv',
+    #     index=False)
     # Iterate through each row in the input dataframe
     for index, row in tqdm(df_input.iterrows()):
         chr_id = row['#CHR']
@@ -1205,7 +1392,9 @@ def annotate_judge_sv_af_in_split_gene(df_split_gene_judge_sv, split_gene_public
         # Filter the annotation slice based on SV type, region, and element
         annot_slice = annot_slice.loc[(annot_slice['SV_TYPE_equal'] == 'True')
                                       & (annot_slice['Region'] == row['Region'])
-                                      & (annot_slice['Element'] == row['Element']), :]
+                                      & (annot_slice['Element'] == row['Element'])
+                                      & (annot_slice['SVLEN'].apply(lambda x: whole_sv_length_filter(x, row['SVLEN']))),
+                      :]
 
         # Compare and obtain annotated SV id, dataset name, and allele frequency
         asv_id, d_name, af = compare_and_obtain_af(row=row, df_annot_slice=annot_slice,
@@ -1216,7 +1405,6 @@ def annotate_judge_sv_af_in_split_gene(df_split_gene_judge_sv, split_gene_public
         annotated_sv_ids.append(asv_id)
         dataset_names.append(d_name)
         afs.append(af)
-
     # Add new columns to the input dataframe with the annotated SV ids, dataset names, and allele frequencies
     df_input[column_prefix + 'AnnotSV_ID'] = annotated_sv_ids
     df_input[column_prefix + 'DataSet_names'] = dataset_names
@@ -1273,7 +1461,9 @@ def annotate_judge_sv_af_in_regulatory(df_regulatory_judge_sv, regulatory_public
         df_annot_slice['SV_TYPE_equal'] = df_annot_slice['SVTYPE'].apply(
             lambda x: str(is_svtype_match(input_type=x, target_type=sv_type)))
         df_annot_slice = df_annot_slice.loc[(df_annot_slice['SV_TYPE_equal'] == 'True')
-                                            & (df_annot_slice['RE_type'] == row['RE_type']), :]
+                                            & (df_annot_slice['RE_type'] == row['RE_type'])
+                                            & (df_annot_slice['SVLEN'].apply(
+            lambda x: whole_sv_length_filter(x, row['SVLEN']))), :]
 
         # Compare and obtain the annotated SV ID, dataset name, and allele frequency
         asv_id, d_name, af = compare_and_obtain_af(row=row, df_annot_slice=df_annot_slice,

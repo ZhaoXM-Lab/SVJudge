@@ -1,5 +1,5 @@
+import logging
 import os
-
 import pandas as pd
 
 import src.annot_func as annot_func
@@ -126,3 +126,38 @@ def run_annotation_only_judge_sv(output_dir, annotation_tuple, input_sv_bed_path
         output_dir=output_dir,
         overlap_threshold=overlap_threshold, distance_threshold=distance_threshold, output_prefix=output_prefix)
     return out_file_split_gene_annot, out_file_whole_gene_annot, out_file_regulatory_annot
+
+
+# %%
+def run_annotation_only_judge_sv_no_AF(output_dir, annotation_tuple, input_sv_bed_path, output_prefix=''):
+    gene_annotation_dict, gene_reference_bed, regulatory_reference_beds, regulatory_element_types = annotation_tuple
+    if output_prefix == '':
+        output_prefix = 'SVJudge'
+
+    logging.info('Annote SVs in %s (Gene Structures)...' % output_prefix)
+    sv_gene_intersection_bed = annot_func.sv_gene_intersection(sv_bed=input_sv_bed_path,
+                                                               gene_annot_bed=gene_reference_bed,
+                                                               output_dir=output_dir,
+                                                               prefix=output_prefix)
+    whole_gene_sv_annot_file = annot_func.annotate_sv_on_whole_gene(sv_gene_intersection_bed,
+                                                                    gene_annot_dict=gene_annotation_dict,
+                                                                    output_dir=output_dir,
+                                                                    file_prefix=output_prefix)
+    # print('Split SVs in ' + output_prefix)
+    split_gene_sv_annot_file = annot_func.split_gene_elements(whole_gene_sv_annot_file=whole_gene_sv_annot_file,
+                                                              gene_annot_dict=gene_annotation_dict)
+
+    if output_prefix == 'SVJudge':
+        output_prefix = 'SVJudge'
+
+    logging.info('Annote SVs in %s (Regulation elements)...' % output_prefix)
+    logging.info('regulatory element types: %s', regulatory_element_types)
+    sv_regulation_intersection_bed = annot_func.sv_regulatory_elements_intersection(sv_bed_path=input_sv_bed_path,
+                                                                                    regulatory_reference_beds=regulatory_reference_beds,
+                                                                                    output_directory=output_dir,
+                                                                                    file_prefix=output_prefix)
+    regulation_sv_annot_file = annot_func.annotate_sv_on_regulatory_element(
+        sv_regulation_intersection_bed=sv_regulation_intersection_bed,
+        regulatory_element_types=regulatory_element_types,
+        output_directory=output_dir, file_prefix=output_prefix)
+    return split_gene_sv_annot_file, whole_gene_sv_annot_file, regulation_sv_annot_file

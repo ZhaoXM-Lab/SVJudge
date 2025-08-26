@@ -1,8 +1,7 @@
 import logging
 import os
-import re
-
 import pandas as pd
+import re
 import statsmodels.api as sm
 
 import src.annot_func as annot_func
@@ -56,7 +55,7 @@ def sv_counts_by_gene_element(gene_split_annot_dict, ref_gene_canonical_annot_di
 
 
 # %%
-def count_sv_by_regulatory_element(re_split_annot_dict, re_ref_bed_files, re_keys, common_af,weight_source_dataset):
+def count_sv_by_regulatory_element(re_split_annot_dict, re_ref_bed_files, re_keys, common_af, weight_source_dataset):
     """
     Calculate Structural Variations (SV) counts based on regulatory elements.
 
@@ -122,7 +121,8 @@ def split_class_by_resource(row, resource=''):
     elif resource == 'RE':
         # Generate label for RE resource
         label_class = re.sub(r'\d+', '', row['RE_ID'])
-
+        if label_class.startswith('GH'):
+            label_class = 'Enhancer'
     # Return the generated label
     return label_class
 
@@ -135,8 +135,17 @@ def calculate_weight_from_studentized_residual(studentized_residual):
     :param studentized_residual: The studentized residual value.
     :return: The calculated weight, rounded to 2 decimal places.
     """
-    weight = min(2, 2 ** abs(studentized_residual / 3))
-    return round(weight if studentized_residual <= 0 else 1 / weight, 2)
+    # 限制极端的残差，防止指数溢出
+    capped_residual = max(min(studentized_residual, 30), -30)
+    exponent = abs(capped_residual / 3)
+
+    try:
+        weight = min(2, 2 ** exponent)
+    except OverflowError:
+        weight = 2  # 如果还是溢出，兜底
+
+    final_weight = weight if capped_residual <= 0 else 1 / weight
+    return round(final_weight, 2)
 
 
 # %%
@@ -156,14 +165,20 @@ def calculate_weights(df):
 
     # Add residuals to the DataFrame
     df['residuals'] = model.resid
+    if len(df) > 1:
+        # Calculate influence and add studentized residuals to the DataFrame
+        influence = model.get_influence()
+        # df.to_csv(
+        #     '/public/home/GENE_proc/anzy/SCZ_LRS_analysis/Python_Output/5.SVJudge/full_pipeline_results_20250508/temp/check.csv',
+        #     index=False)
 
-    # Calculate influence and add studentized residuals to the DataFrame
-    influence = model.get_influence()
-    df['resid_studentized'] = influence.resid_studentized_external
+        df['resid_studentized'] = influence.resid_studentized_external
 
-    # Calculate weights from studentized residuals and add to the DataFrame
-    df['weight'] = df['resid_studentized'].apply(calculate_weight_from_studentized_residual)
-
+        # Calculate weights from studentized residuals and add to the DataFrame
+        df['weight'] = df['resid_studentized'].apply(calculate_weight_from_studentized_residual)
+    else:
+        df['resid_studentized'] = 0
+        df['weight'] = 1
     return df
 
 
@@ -216,15 +231,33 @@ def calculate_weight_for_elements(gene_sv_counts, re_sv_counts, output_dir, used
 
     used_data = used_data or list(gene_sv_counts.keys())
     for data in tqdm(used_data):
+        gene_weights[data] = os.path.join(output_dir, '%s.sv_gene_elements.conservation_weights.temp.csv' % data)
+        re_weights[data] = os.path.join(output_dir, '%s.sv_re_elements.conservation_weights.temp.csv' % data)
         if method == 'split':
-            gene_weights[data] = os.path.join(output_dir, '%s.sv_gene_elements.conservation_weights.temp.csv' % data)
-            df_gene_weights = process_data_split(gene_sv_counts[data], 'gene')
-            df_gene_weights.to_csv(gene_weights[data], index=False)
-            re_weights[data] = os.path.join(output_dir, '%s.sv_re_elements.conservation_weights.temp.csv' % data)
-            df_re_weights = process_data_split(re_sv_counts[data], 'RE')
-            df_re_weights.to_csv(re_weights[data], index=False)
+
+            if not os.path.exists(gene_weights[data]):
+                df_gene_weights = process_data_split(gene_sv_counts[data], 'gene')
+                df_gene_weights.to_csv(gene_weights[data], index=False)
+            else:
+                logging.info(
+                    f"Detected existing file: {gene_weights[data]} — skipping processing and loading directly.")
+
+            if not os.path.exists(re_weights[data]):
+                df_re_weights = process_data_split(re_sv_counts[data], 'RE')
+                df_re_weights.to_csv(re_weights[data], index=False)
+            else:
+                logging.info(
+                    f"Detected existing file: {re_weights[data]} — skipping processing and loading directly.")
         elif method == 'All':
-            gene_weights[data], re_weights[data] = process_data_all(gene_sv_counts[data], re_sv_counts[data])
+            if not os.path.exists(re_weights[data]) or not os.path.exists(gene_weights[data]):
+                df_gene_weights, df_re_weights, = process_data_all(gene_sv_counts[data], re_sv_counts[data])
+                df_gene_weights.to_csv(gene_weights[data], index=False)
+                df_re_weights.to_csv(re_weights[data], index=False)
+            else:
+                logging.info(
+                    f"Detected existing file: {gene_weights[data]} — skipping processing and loading directly.")
+                logging.info(
+                    f"Detected existing file: {re_weights[data]} — skipping processing and loading directly.")
         else:
             logging.error(f"Invalid method in calculating conserveration weights for gene and RE elements : {method}")
     return gene_weights, re_weights

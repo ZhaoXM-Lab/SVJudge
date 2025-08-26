@@ -33,6 +33,8 @@ def vcf2bed(vcf_dir, output_bed, public_sv=False, include_TRA=False):
                 end = int(end[0])
             else:
                 end = int(end)
+            if sv_type == 'INS' and int(pos)==int(end):
+                end = pos + 1
             if public_sv:
                 af = record.INFO.get('AF', 'unknown')
                 if type(af) == list:

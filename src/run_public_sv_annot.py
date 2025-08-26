@@ -47,11 +47,16 @@ def preprocess_public_sv_annot_on_gene(input_sv_bed_paths, selected_datasets, ge
             whole_gene_sv_annot_file=whole_gene_sv_annot_dict[data_name],
             gene_annot_dict=gene_annotation_dict)
 
-    split_gene_sv_annot_merge_sets_file = os.path.join(output_dir,'Public_SV_sets.Merge.gene_annot.split.tsv')
+    split_gene_sv_annot_merge_sets_file = os.path.join(output_dir, 'Public_SV_sets.Merge.gene_annot.split.tsv')
     logging.info('Annote Gene Element by AF...')
-    annot_func.merge_filter_sv_sets_in_gene(input_sv_af_dict=split_gene_sv_annot_dict,
-                                            output_file=split_gene_sv_annot_merge_sets_file,
-                                            overlap_threshold=overlap_threshold, distance_threshold=distance_threshold)
+    if not os.path.exists(split_gene_sv_annot_merge_sets_file):
+        annot_func.merge_filter_sv_sets_in_gene(input_sv_af_dict=split_gene_sv_annot_dict,
+                                                output_file=split_gene_sv_annot_merge_sets_file,
+                                                overlap_threshold=overlap_threshold,
+                                                distance_threshold=distance_threshold)
+    else:
+        logging.info(
+            f"Detected existing file: {split_gene_sv_annot_merge_sets_file} — skipping processing and loading directly.")
     return split_gene_sv_annot_merge_sets_file, split_gene_sv_annot_dict, whole_gene_sv_annot_dict
 
 
@@ -92,10 +97,14 @@ def preprocess_public_sv_annot_on_regulation(input_sv_bed_paths, selected_datase
         regulation_sv_annot_dict[data_name] = regulation_sv_annot_file
     regulation_sv_annot_merge_sets_file = os.path.join(output_dir, 'Public_SV_sets.Merge.RE_annot.tsv')
     logging.info('Annote Regulation elements by AF...')
-    annot_func.merge_filter_sv_sets_in_regulatory(input_files_dict=regulation_sv_annot_dict,
-                                                  output_file=regulation_sv_annot_merge_sets_file,
-                                                  overlap_threshold=overlap_threshold,
-                                                  distance_threshold=distance_threshold)
+    if not os.path.exists(regulation_sv_annot_merge_sets_file):
+        annot_func.merge_filter_sv_sets_in_regulatory(input_files_dict=regulation_sv_annot_dict,
+                                                      output_file=regulation_sv_annot_merge_sets_file,
+                                                      overlap_threshold=overlap_threshold,
+                                                      distance_threshold=distance_threshold)
+    else:
+        logging.info(
+            f"Detected existing file: {regulation_sv_annot_merge_sets_file} — skipping processing and loading directly.")
     return regulation_sv_annot_merge_sets_file, regulation_sv_annot_dict
 
 

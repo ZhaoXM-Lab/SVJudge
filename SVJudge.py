@@ -2,7 +2,9 @@
 import argparse
 import logging
 import os
+import shutil
 import sys
+import warnings
 from time import strftime, localtime
 
 import src.utils as utils
@@ -12,10 +14,10 @@ from src.run_judge_sv_scoring import run_scoring
 from src.run_public_sv_annot import run_annotation_only_public_sv
 from src.run_whole_sv_annot import run_whole_sv_annotate
 from src.version import __version__
-import shutil
-import warnings
+
 # 屏蔽所有警告信息
 warnings.filterwarnings('ignore')
+
 
 def parse_arguments(arguments=sys.argv[1:]):
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -43,7 +45,7 @@ def parse_arguments(arguments=sys.argv[1:]):
     optional_params.add_argument('-annot_sv_dir', dest="prefix", type=os.path.abspath, default='',
                                  help='Only used in task score (default: %(default)s)')
     optional_params.add_argument('-use_sv_set', dest='use_sv_set',
-                                 default='gnomAD, 1000PG_phase3, DGV, IMH, PGG_LRS_SV, PGG_SRS_SV',
+                                 default='gnomAD, 1000PG_phase3, DGV, IMH, PGG_LRS_SV, PGG_SRS_SV, Han_459',
                                  help='Public SV sets will use in task, default: %(default)s'
                                       '\nMultiple inputs separated by commas. For example: -use_sv_set 1000PG_phase3,gnomAD')
     optional_params.add_argument('-add_sv_set_name', dest='add_sv_set_name', action="append",
@@ -54,7 +56,7 @@ def parse_arguments(arguments=sys.argv[1:]):
                                       '\nThis parameter can be specified multiple times to add multiple SV sets')
     optional_params.add_argument('-integrate_mode', dest='integrate_mode', default='Max', choices=['Max', 'Sum'],
                                  help='How to integrate the score of SV impacted multiple function regions (Max or Sum), default: %(default)s)')
-    optional_params.add_argument('-sv_set_for_weight', dest='weight_source_dataset', default='PGG_LRS_SV',
+    optional_params.add_argument('-sv_set_for_weight', dest='weight_source_dataset', default='PGG_LRS_SV,Han_459',
                                  help='SV sets of element weight data, default: %(default)s)'
                                       '\nMultiple inputs separated by commas. For example: -sv_set_for_weight PGG_LRS_SV, gnomAD')
 
@@ -98,11 +100,11 @@ if __name__ == '__main__':
     annotation_files_dict = {'Gene': os.path.join(data_dir, 'gene_annotation/gene_structure/refGene.txt')}
     regulation_dir = os.path.join(data_dir, 'regulatory_element')
     for element in os.listdir(regulation_dir):
-        if element not in ['Promoter','Enhancer','DNA_Accessible','TAD']:
-            logging.error("Cannot identified regulatory elements %s" %element)
-        subdir = os.path.join(regulation_dir,element)
+        if element not in ['Promoter', 'Enhancer', 'DNA_Accessible', 'TAD']:
+            logging.error("Cannot identified regulatory elements %s" % element)
+        subdir = os.path.join(regulation_dir, element)
         annot_file = os.listdir(subdir)[0]
-        annotation_files_dict[element] = os.path.join(subdir,annot_file)
+        annotation_files_dict[element] = os.path.join(subdir, annot_file)
 
     # public sv sets
     public_sv_set_paths = {'gnomAD': os.path.join(data_dir, 'public_sv_set/gnomAD-sv.preprocessed.bed'),
@@ -110,7 +112,8 @@ if __name__ == '__main__':
                            'PGG_LRS_SV': os.path.join(data_dir, 'public_sv_set/PGG_SV.LRS.preprocessed.bed'),
                            'PGG_SRS_SV': os.path.join(data_dir, 'public_sv_set/PGG_SV.SRS.preprocessed.bed'),
                            'IMH': os.path.join(data_dir, 'public_sv_set/IMH-sv.preprocessed.bed'),
-                           'DGV': os.path.join(data_dir, 'public_sv_set/DGV-sv.preprocessed.bed')}
+                           'DGV': os.path.join(data_dir, 'public_sv_set/DGV-sv.preprocessed.bed'),
+                           'Han_459': os.path.join(data_dir, 'public_sv_set/Han_945.preprocessed.bed')}
     gene_hi_lof_file = os.path.join(data_dir, 'gene_annotation/gene_intolerance_annotations/GENE_HI_LOF.merge.tsv')
     use_public_sv_sets = options.use_sv_set.split(',')
     use_public_sv_sets = [i.strip() for i in use_public_sv_sets]
@@ -151,6 +154,7 @@ if __name__ == '__main__':
     gene_annotation_dict, gene_reference_bed, regulatory_reference_beds, regulatory_element_types = utils.load_annotation_files(
         annotation_files_dict=annotation_files_dict, output_dir=temp_dir)
     annotation_tuple = (gene_annotation_dict, gene_reference_bed, regulatory_reference_beds, regulatory_element_types)
+
     split_gene_public_sv_annot_merge_sets_file, split_gene_sv_annot_dict, regulation_sv_annot_merge_sets_file, regulation_sv_annot_dict = run_annotation_only_public_sv(
         annotation_tuple=annotation_tuple,
         input_sv_bed_paths=public_sv_set_paths,
@@ -158,18 +162,18 @@ if __name__ == '__main__':
         overlap_threshold=options.overlap_threshold,
         distance_threshold=options.distance_threshold,
         output_dir=temp_dir)
-    #debug
-    """
+    # debug
+
     split_gene_sv_annot_dict = {}
     regulation_sv_annot_dict = {}
     gene_element_sv_conservation = {}
     regulation_element_sv_conservation = {}
     for file in os.listdir(temp_dir):
         if file.endswith('.gene_annot.split.tsv'):
-            data = file.replace('.gene_annot.split.tsv','')
+            data = file.replace('.gene_annot.split.tsv', '')
             if data not in use_public_sv_sets:
                 continue
-            split_gene_sv_annot_dict[data] = os.path.join(temp_dir,file)
+            split_gene_sv_annot_dict[data] = os.path.join(temp_dir, file)
         elif file.endswith('.RE_annot.tsv'):
             data = file.replace('.RE_annot.tsv', '')
             if data not in use_public_sv_sets:
@@ -179,7 +183,7 @@ if __name__ == '__main__':
             data = file.replace('.sv_gene_elements.conservation_weights.temp.csv', '')
             if data not in weight_source_dataset:
                 continue
-            gene_element_sv_conservation[data] = os.path.join(temp_dir,file)
+            gene_element_sv_conservation[data] = os.path.join(temp_dir, file)
         elif file.endswith('.sv_re_elements.conservation_weights.temp.csv'):
             data = file.replace('.sv_re_elements.conservation_weights.temp.csv', '')
             if data not in weight_source_dataset:
@@ -187,7 +191,6 @@ if __name__ == '__main__':
             regulation_element_sv_conservation[data] = os.path.join(temp_dir, file)
     split_gene_public_sv_annot_merge_sets_file = os.path.join(temp_dir, 'Public_SV_sets.Merge.gene_annot.split.tsv')
     regulation_sv_annot_merge_sets_file = os.path.join(temp_dir, 'Public_SV_sets.Merge.RE_annot.tsv')
-    """
 
     gene_element_sv_conservation, regulation_element_sv_conservation = run_calculate_conservation_weight(
         sv_gene_split_annotation=split_gene_sv_annot_dict,
@@ -216,8 +219,8 @@ if __name__ == '__main__':
                                                     distance_threshold=options.distance_threshold,
                                                     output_dir=temp_dir,
                                                     out_prefix=options.prefix)
-    print("whole_judge_sv_annot_af: %s" % whole_judge_sv_annot_af)
-    logging.info('Annotating input SVs...')
+    logging.info("whole_judge_sv_annot_af: %s" % whole_judge_sv_annot_af)
+    logging.info('Scoring input SVs...')
 
     run_scoring(judge_sv_whole_gene_file=judge_sv_whole_gene_annot_file,
                 judge_sv_split_gene_file=judge_sv_split_gene_annot_file, annotation_tuple=annotation_tuple,
@@ -231,9 +234,11 @@ if __name__ == '__main__':
                 weight_source_dataset=weight_source_dataset,
                 common_af=options.common_af,
                 prefix=options.prefix)
-    shutil.rmtree(temp_dir)
-    suffixes_to_keep = ['max.summary.tsv','.annotated.tsv','.log','.detail.tsv']
+    # shutil.rmtree(temp_dir)
+    suffixes_to_keep = ['max.summary.tsv', '.annotated.tsv', '.log', '.detail.tsv']
     for filename in os.listdir(work_dir):
+        # 检查文件是否是一个文件而不是文件夹，并且文件名不以指定后缀结尾
         file_path = os.path.join(work_dir, filename)
         if os.path.isfile(file_path) and not any(filename.endswith(suffix) for suffix in suffixes_to_keep):
+            # 删除该文件
             os.remove(file_path)
